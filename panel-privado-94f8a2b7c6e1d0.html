@@ -157,18 +157,23 @@ const btn=(l,f,c,i,tip)=>E('button',{class:'b '+(c||''),onclick:f,title:tip||'',
 const inp=(v,f,ph)=>E('input',{type:'text',value:v||'',placeholder:ph||'',oninput:e=>f(e.target.value)});
 const lbl=(t,...n)=>E('div',{class:'fld'},E('small',{},t),...n);
 const seg=(o,val,fn)=>{const w=E('div',{class:'seg'}),d=()=>w.replaceChildren(...o.map(([v,l])=>btn(l,()=>{val=v;fn(v);d()},val==v?'on':'')));d();return w};
-const uid=()=>crypto.randomUUID().replace(/-/g,'').slice(0,12).toUpperCase();
+const uid=()=>{const a=new Uint8Array(6);crypto.getRandomValues(a);return [...a].map(x=>x.toString(16).padStart(2,'0')).join('').toUpperCase()};
 const hex=v=>/^#[0-9a-f]{3,8}$/i.test(v||'')?v:'', AL=v=>['left','center','right','justify'].includes(v)?v:'left', SH=['circle','rounded','square','diamond','ring'],FF={serif:`Georgia,'Times New Roman',serif`,sans:`system-ui,sans-serif`,mono:`'Courier New',monospace`,round:`'Trebuchet MS',sans-serif`,script:`'Brush Script MT','Segoe Script',cursive`},SZ={1:.63,2:.82,3:1,4:1.13,5:1.5,6:2,7:3},
 LH={stack:'Blocks appear one after another.',imgL:'Images sit in a fixed panel on the left (with arrows if there are several); the text scrolls on the right. Each image can fit whole or fill the panel (set in the Content tab).',imgR:'Images sit in a fixed panel on the right (with arrows if there are several); the text scrolls on the left. Each image can fit whole or fill the panel (set in the Content tab).',hero:'Images first, then the text.',flow:'Free flow: in the Content tab, choose for each image or video where it goes: wrapped by the text, in its own row, in a column beside the next text block, or sharing a row with neighbouring images. Reorder blocks freely.'};
 let S,DEV,cur=null,sel=-1,mode='admin',placing=false,tab='a',vp,st,W,Hh,fit=1,moved=0,FS=19,tm,cam={s:1,x:0,y:0};
 try{DEV=localStorage.dev||(localStorage.dev=uid())}catch{DEV='TMP'+uid()}
 const isAdm=()=>S.admins.some(a=>a.id==DEV),edit=()=>isAdm()&&mode=='admin';
-function toast(m){const t=$('#ts');t.textContent=m;t.classList.add('o');clearTimeout(t._);t._=setTimeout(()=>t.classList.remove('o'),2200)}
+function toast(m){const t=$('#ts');t.textContent=m;t.classList.add('o');clearTimeout(t._);t._=setTimeout(()=>t.classList.remove('o'),Math.max(2200,m.length*70))}
 const idb=()=>new Promise((ok,no)=>{const r=indexedDB.open('hotspots',1);r.onupgradeneeded=()=>r.result.createObjectStore('kv');r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});
 const kvGet=async k=>{const d=await idb();return new Promise((ok,no)=>{const q=d.transaction('kv').objectStore('kv').get(k);q.onsuccess=()=>ok(q.result);q.onerror=()=>no(q.error)})};
 const kvSet=async(k,v)=>{const d=await idb();return new Promise((ok,no)=>{const t=d.transaction('kv','readwrite');t.objectStore('kv').put(v,k);t.oncomplete=()=>ok();t.onerror=t.onabort=()=>no(t.error)})};
 function save(){clearTimeout(tm);tm=setTimeout(()=>{if(!window.indexedDB){try{localStorage.hs=JSON.stringify(S)}catch{toast('Could not save. Export your project to keep a copy.')}return}kvSet('hs',S).catch(()=>toast('Could not save. Export your project to keep a copy.'))},250)}
 addEventListener('visibilitychange',()=>{if(document.hidden&&S&&window.indexedDB){clearTimeout(tm);kvSet('hs',S).catch(()=>{})}});
+const canClaim=()=>!/^https?:$/.test(location.protocol)||/claude/i.test(location.hostname)||/^(localhost|127\.0\.0\.1)$/.test(location.hostname)||/[?&]setup\b/.test(location.search);
+async function loadF(){const f=new URLSearchParams(location.search).get('f');if(!f||!/\.json$/i.test(f)||/[\/\\]/.test(f))return;
+ try{const r=await fetch(encodeURIComponent(f),{cache:'no-cache'});if(!r.ok)return;const o=await r.json(),q=normP(o.project||o);if(!q)return;
+  const ex=S.projects.find(x=>x.id==q.id);if(!ex)S.projects.push({...q,_file:f,_ok:1});else if(ex._file&&!ex._ok){ex.img=q.img;ex.spots=q.spots;if(q.def)ex.def=q.def;ex._ok=1}
+  if(location.hash.length<2)location.hash=q.id}catch{}}
 async function load(){let loc=null,rem=null;
  try{loc=await kvGet('hs')}catch{}
  if(!loc){try{loc=JSON.parse(localStorage.hs)}catch{}if(loc)kvSet('hs',loc).then(()=>{try{localStorage.removeItem('hs')}catch{}}).catch(()=>{})}
@@ -176,8 +181,9 @@ async function load(){let loc=null,rem=null;
  if(!rem)try{const r=await fetch('data.json',{cache:'no-cache'});if(r.ok)rem=await r.json()}catch{}
  S=(loc&&(loc.admins||[]).some(a=>a.id==DEV))||!rem?loc:rem;
  S=S||{owner:null,admins:[],projects:[]};S.projects=S.projects||[];S.admins=S.admins||[];
+ await loadF();
  if(rem&&S===rem&&S.admins.some(a=>a.id==DEV))await Promise.all(S.projects.map(p=>ensure(p).catch(()=>{})));
- if(!S.owner&&!rem){S.owner=DEV;S.admins=[{id:DEV,name:'Owner'}];save()}}
+ if(!S.owner&&!rem&&canClaim()){S.owner=DEV;S.admins=[{id:DEV,name:'Owner'}];save()}}
 const shrink=(f,m)=>new Promise(r=>{const i=new Image();i.onload=()=>{const k=Math.min(1,m/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*k;c.height=i.height*k;c.getContext('2d').drawImage(i,0,0,c.width,c.height);r(c.toDataURL('image/jpeg',.82))};i.src=URL.createObjectURL(f)});
 const pick=(cb,acc)=>{const i=E('input',{type:'file',accept:acc||'image/*'});i.onchange=()=>i.files[0]&&cb(i.files[0]);i.click()};
 const shut=()=>$('#md').hidden=true;
@@ -187,24 +193,24 @@ function theme(){const r=document.documentElement;r.style.setProperty('--acc',he
 const go=id=>{location.hash=id||'';route()};
 function route(){cur=S.projects.find(p=>p.id==location.hash.slice(1))||null;sel=-1;placing=false;shut();theme();$('#bk').classList.remove('o');$('#pn').classList.remove('o');bar();
  if(cur&&cur._file&&!cur._ok){const v=$('#view'),c=cur,msg=t=>v.replaceChildren(E('div',{class:'home'},E('div',{class:'empty'},t)));v.className='';msg('Loading…');ensure(c).then(()=>{if(cur===c)route()}).catch(()=>{if(cur===c)msg('Could not load this project.')});return}
- if(cur)scene();else home()}
+ if(cur)scene();else home(location.hash.length>1)}
 function setPlacing(b){placing=b;$('#view').classList.toggle('placing',b);bar()}
 function bar(){const b=$('#bar'),t=E('div',{class:'tools'});b.replaceChildren();
  if(cur)b.append(btn('',()=>go(''),'i','left','Back to projects'));
  b.append(E('b',{class:'t'},cur?cur.title:'Interactive Exhibits'),E('span',{class:'sp'}));
  if(isAdm()){t.append(seg([['admin','Editor'],['view','Viewer']],mode,m=>{mode=m;route()}));
   if(edit()){if(cur)t.append(btn('Background',bg,'','img'),btn(placing?'Cancel':'Add dot',()=>setPlacing(!placing),placing?'p':'','plus'),btn('Share',qr,'','qr'),btn('Settings',settings,'','cog'));
-   else t.append(btn('Create project',create,'p','plus'),btn('Import project',imp,'','up'),btn('Export all',exp,'','dl','Export every project as its own .json file, plus index.json for hosting'),btn('Admins',adm,'','users'))}}
+   else t.append(btn('Create project',create,'p','plus'),btn('Import project',imp,'','up'),btn('Export all',exp,'','dl','Export every project as its own .json file, plus index.json for hosting'),btn('Publishing',()=>ghModal(),'','cog','Connect your GitHub repository to publish projects'),btn('Admins',adm,'','users'))}}
  else t.append(btn('Admin access',myid,'','users'));
  b.append(t)}
 function create(){const p={id:'p'+uid().toLowerCase().slice(0,6),title:'New project',img:'',spots:[]};S.projects.push(p);save();go(p.id)}
 function ren(p){let v=p.title;const i=inp(v,x=>v=x),ok=()=>{p.title=v.trim()||'Untitled';save();route()};i.onkeydown=e=>{if(e.key=='Enter')ok()};modal('Rename project',lbl('Project name',i),E('div',{class:'row end'},btn('Cancel',shut),btn('Save',ok,'p')));setTimeout(()=>i.focus(),60)}
 function dup(p){const c=JSON.parse(JSON.stringify(p));c.id='p'+uid().toLowerCase().slice(0,6);c.title+=' (copy)';S.projects.push(c);save();route();toast('Project duplicated')}
 function del(p){modal('Delete project',E('p',{},`Delete “${p.title}” and all its dots? This cannot be undone.`),E('div',{class:'row end'},btn('Cancel',shut),btn('Delete',()=>{S.projects=S.projects.filter(x=>x!=p);save();go('')},'p d','trash')))}
-function home(){vp=st=null;const v=$('#view'),ed=edit();v.className='';
- v.replaceChildren(E('div',{class:'home'},E('div',{class:'hh'},E('h1',{},'Projects'),E('p',{},ed?'Create, edit and share interactive exhibits.':'Choose an exhibit to explore.')),
+function home(miss){vp=st=null;const v=$('#view'),ed=edit();v.className='';
+ v.replaceChildren(E('div',{class:'home'},E('div',{class:'hh'},E('h1',{},'Projects'),E('p',{},ed?'Create, edit and share interactive exhibits.':'Choose an exhibit to explore.')),miss?E('div',{class:'hint2'},ed?'That project is not on this site yet. Use Publish to site on its card, or upload its .json file next to index.html.':'This exhibit is not available yet.'):null,
   E('div',{class:'grid'},S.projects.map(p=>E('div',{class:'card',tabindex:'0',onclick:()=>go(p.id),onkeydown:e=>{if(e.key=='Enter')go(p.id)}},p.img||p.thumb?E('img',{src:p.img||p.thumb,alt:''}):E('div',{class:'ph'},ic('img')),E('div',{class:'cb'},E('b',{},p.title),E('small',{},(p._file&&!p._ok?p.n:p.spots.length)+' points')),
-   ed?E('div',{class:'ca',onclick:e=>e.stopPropagation()},btn('',()=>ren(p),'i','edit','Rename'),btn('',()=>dup(p),'i','copy','Duplicate'),btn('',()=>expP(p),'i','dl','Export project'),btn('',()=>del(p),'i d','trash','Delete')):null))),
+   ed?E('div',{class:'ca',onclick:e=>e.stopPropagation()},btn('',()=>ren(p),'i','edit','Rename'),btn('',()=>dup(p),'i','copy','Duplicate'),btn('',()=>pubP(p),'i','up','Publish to site'),btn('',()=>expP(p),'i','dl','Export project'),btn('',()=>del(p),'i d','trash','Delete')):null))),
   S.projects.length?null:E('div',{class:'empty'},ed?'No projects yet. Use “Create project” to start.':'No exhibits published yet.')))}
 function bg(){pick(async f=>{cur.img=await shrink(f,2400);save();scene()})}
 function scene(){const v=$('#view');v.className=placing?'placing':'';v.replaceChildren();vp=st=null;
@@ -436,9 +442,34 @@ function appearance(bd,h){const lh=E('small',{style:'display:block;margin-top:8p
 function settings(){modal('Settings',lbl('Project name',inp(cur.title,v=>{cur.title=v;save();bar()})),
  lbl('Accent color',E('input',{type:'color',value:hex(S.acc)||'#d9480f',oninput:e=>{S.acc=e.target.value;save();theme()}})),
  lbl('Theme',seg([['','Auto'],['light','Light'],['dark','Dark']],S.theme||'',v=>{S.theme=v;save();theme()})),
- E('div',{class:'row',style:'flex-wrap:wrap'},btn('Export project',()=>expP(cur),'','dl'),btn('Admins',adm,'','users'),btn('Delete project',()=>del(cur),'d','trash')))}
-function qr(){const u=location.href.split('#')[0]+'#'+cur.id,b=E('div',{class:'qr'});modal('Share via QR',b,E('p',{},E('code',{},u)),E('small',{},'Use your final website address before printing the QR.'));
+ E('div',{class:'row',style:'flex-wrap:wrap'},btn('Export project',()=>expP(cur),'','dl'),btn('Publish to site',()=>pubP(cur),'','up'),btn('Admins',adm,'','users'),btn('Delete project',()=>del(cur),'d','trash')))}
+function qr(){const base=location.href.split('#')[0].split('?')[0],f=cur._pubFile||fname(cur.title),u=base+'?f='+encodeURIComponent(f)+'#'+cur.id,b=E('div',{class:'qr'});
+ modal('Share via QR',b,E('p',{},E('code',{},u)),E('small',{style:'display:block;color:var(--mut);margin-bottom:10px'},`Scanning opens this project directly on any device. Its file (${f}) must be on your site: press Publish to site, or upload that file next to index.html. Use your final website address before printing.`),E('div',{class:'row'},btn('Publish to site',()=>pubP(cur),'p','up')));
  try{new QRCode(b,{text:u,width:240,height:240,correctLevel:QRCode.CorrectLevel.H})}catch{b.textContent='QR unavailable'}}
+const ghCfg=async()=>{let c=null;try{c=await kvGet('gh')}catch{}if(!c)try{c=JSON.parse(localStorage.gh)}catch{}return c};
+async function ghSet(c){try{await kvSet('gh',c)}catch{try{localStorage.gh=JSON.stringify(c)}catch{}}}
+const b64=t=>{const u=new TextEncoder().encode(t);let x='';for(let i=0;i<u.length;i+=32768)x+=String.fromCharCode.apply(null,u.subarray(i,i+32768));return btoa(x)};
+const ghApi=(c,path,o={})=>fetch(`https://api.github.com/repos/${c.repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}${o.method=='PUT'?'':'?ref='+encodeURIComponent(c.branch||'main')}`,{method:o.method||'GET',body:o.body,headers:{Accept:o.raw?'application/vnd.github.raw+json':'application/vnd.github+json',Authorization:'Bearer '+c.token,'X-GitHub-Api-Version':'2022-11-28'}});
+async function ghPut(c,path,text,msg){let sha;const g=await ghApi(c,path);if(g.status==200)sha=(await g.json()).sha;else if(g.status==401||g.status==403)throw new Error('GitHub rejected the token. It needs Contents: Read and write on this repository.');else if(g.status!=404)throw new Error('GitHub error '+g.status);
+ const r=await ghApi(c,path,{method:'PUT',body:JSON.stringify({message:msg,content:b64(text),branch:c.branch||'main',...(sha?{sha}:{})})});
+ if(r.status==401||r.status==403||r.status==404)throw new Error('Could not write to the repository. Check owner/name, branch and token permissions.');if(!r.ok)throw new Error('GitHub error '+r.status)}
+async function pubP(p){const c=await ghCfg();if(!c||!c.repo||!c.token)return ghModal(()=>pubP(p));
+ const pre=c.folder?c.folder.replace(/^\/+|\/+$/g,'')+'/':'';toast('Publishing\u2026');
+ try{try{await ensure(p)}catch{}
+  let m=null;const g=await ghApi(c,pre+'index.json',{raw:1});if(g.status==200){try{m=JSON.parse(await g.text())}catch{}}else if(g.status==401||g.status==403)throw new Error('GitHub rejected the token. It needs Contents: Read and write on this repository.');else if(g.status!=404)throw new Error('Could not reach the repository. Check owner/name and branch.');
+  if(!m||!Array.isArray(m.projects))m={format:'hotspots-site',version:1,projects:[]};
+  let file=fname(p.title);if(m.projects.some(x=>x.id!=p.id&&x.file==file))file=fname(p.title+' '+p.id);
+  await ghPut(c,pre+file,pj(p),'Publish project '+p.title);
+  const e={id:p.id,title:p.title,count:p.spots.length,file,thumb:await thumb(p.img,360)},i=m.projects.findIndex(x=>x.id==p.id);if(i<0)m.projects.push(e);else m.projects[i]=e;
+  if(!m.owner||S.owner==DEV){m.owner=S.owner;m.admins=S.admins}else m.admins=[...(m.admins||[]),...S.admins.filter(a=>!(m.admins||[]).some(x=>x.id==a.id))];
+  m.acc=S.acc;m.theme=S.theme;
+  await ghPut(c,pre+'index.json',JSON.stringify(m),'Update project list');
+  p._pubFile=file;save();toast('Published. It can take a minute to appear on the site.')}
+ catch(e){toast(String(e.message||e).slice(0,200))}}
+async function ghModal(after){const c=(await ghCfg())||{},h=location.hostname.match(/^(.+)\.github\.io$/),s1=location.pathname.split('/')[1],guess=h?h[1]+'/'+(s1&&!/\.html?$/i.test(s1)?s1:h[1]+'.github.io'):'',v={repo:c.repo||guess,branch:c.branch||'main',folder:c.folder||'',token:c.token||''};
+ const tk=E('input',{type:'password',value:v.token,placeholder:'github_pat_\u2026',autocomplete:'off',oninput:e=>v.token=e.target.value});
+ modal('Publish to GitHub',E('small',{style:'display:block;color:var(--mut);margin:8px 0'},'Publishing saves the project file and the project list into your repository, so every device can open it. The token stays in this browser only and is never exported or shared. Use a fine-grained token limited to this one repository, with Contents: Read and write.'),lbl('Repository (owner/name)',inp(v.repo,x=>v.repo=x.trim(),'owner/repo')),lbl('Branch',inp(v.branch,x=>v.branch=x.trim(),'main')),lbl('Folder that holds index.html (empty = repository root)',inp(v.folder,x=>v.folder=x.trim(),'')),lbl('Access token',tk),
+  E('div',{class:'row end'},btn('Cancel',shut),btn('Save',async()=>{if(!/^[\w.-]+\/[\w.-]+$/.test(v.repo)||!v.token)return toast('Enter owner/name and a token');await ghSet(v);shut();toast('GitHub settings saved');if(after)after()},'p')))}
 const copyId=()=>navigator.clipboard.writeText(DEV).then(()=>toast('Device ID copied')).catch(()=>toast('Copy not available'));
 function myid(){modal('Admin access',E('p',{},'Your device ID:'),E('p',{},E('code',{},DEV)),E('div',{class:'row'},btn('Copy ID',copyId,'','copy')),E('small',{},'Send this ID to the owner to be granted editor access.'))}
 function adm(){const own=S.owner==DEV,l=E('div');let id='',nm='';
@@ -448,7 +479,7 @@ async function dl(name,data){let d=null;try{d=await claude.use('downloads')}catc
  try{if(d)return await d.save({filename:name,data})}catch(e){if(e&&e.code=='declined')return}
  E('a',{href:URL.createObjectURL(new Blob([data],{type:'application/json'})),download:name}).click()}
 const fname=t=>(String(t||'').replace(/[\\\/:*?"<>|\u0000-\u001f]/g,'').replace(/\s+/g,' ').trim().slice(0,80)||'project')+'.json';
-const strip=p=>{const{_file,_ok,thumb,n,...r}=p;return r};
+const strip=p=>{const{_file,_ok,_pubFile,thumb,n,...r}=p;return r};
 const pj=p=>JSON.stringify({format:'hotspots-project',version:1,project:strip(p)});
 const thumb=(u,m)=>new Promise(ok=>{if(!u)return ok('');const i=new Image();i.onload=()=>{const k=Math.min(1,m/i.width),c=document.createElement('canvas');c.width=i.width*k;c.height=i.height*k;c.getContext('2d').drawImage(i,0,0,c.width,c.height);ok(c.toDataURL('image/jpeg',.7))};i.onerror=()=>ok('');i.src=u});
 function normP(q){if(!q||!Array.isArray(q.spots))return null;const r={id:typeof q.id=='string'&&/^[A-Za-z0-9-]{1,40}$/.test(q.id)?q.id:'p'+uid().toLowerCase().slice(0,6),title:String(q.title||'Imported project').slice(0,120),img:typeof q.img=='string'?q.img:'',spots:q.spots.filter(x=>x&&typeof x=='object').map(x=>({...x,b:Array.isArray(x.b)?x.b:[]}))};if(q.def&&typeof q.def=='object')r.def=q.def;return r}
